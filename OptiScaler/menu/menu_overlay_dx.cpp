@@ -1,6 +1,8 @@
 #include "pch.h"
+// Unofficial CodiesVR bridge integration, modified 2026-10-19. GPL-3.0.
 #include "menu_overlay_base.h"
 #include "menu_overlay_dx.h"
+#include "codiesvr_bridge.h"
 
 #include <Util.h>
 #include <Logger.h>
@@ -130,6 +132,18 @@ static void CleanupRenderTargetDx12(bool clearQueue)
 {
     if (!_isInited || !_dx12Device || State::Instance().isShuttingDown)
         return;
+
+    CodiesVrBridge::ClearOverlay();
+    if (g_menuFence && g_menuFence->GetCompletedValue() < g_menuFenceValue)
+    {
+        if (FAILED(g_menuFence->SetEventOnCompletion(g_menuFenceValue, g_menuFenceEvent)) ||
+            WaitForSingleObject(g_menuFenceEvent, 2000) != WAIT_OBJECT_0)
+        {
+            LOG_ERROR("CodiesVR: cleanup fence wait failed; retaining overlay resources");
+            return;
+        }
+    }
+    CodiesVrBridge::ResetOverlay();
 
     for (UINT i = 0; i < NUM_BACK_BUFFERS; ++i)
     {
@@ -506,7 +520,7 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
 
             // Blur textures are only created once the menu is opened, menu decides if they are used
             bool blurReady = false;
-            if (g_menuBlur || MenuOverlayBase::IsVisible())
+            if (!CodiesVrBridge::Active() && (g_menuBlur || MenuOverlayBase::IsVisible()))
             {
                 if (!g_menuBlur)
                     g_menuBlur = std::make_unique<MenuBlur_Dx12>("MenuBlur", device, &g_pd3dSrvDescHeapAlloc);
@@ -519,7 +533,11 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
             else
                 MenuCommon::SetBackgroundBlur(ImTextureID_Invalid);
 
-            if (MenuOverlayBase::RenderMenu())
+            CodiesVrBridge::ClearOverlay();
+            const bool renderedMenu = MenuOverlayBase::RenderMenu();
+            CodiesVrBridge::UpdateMenuState(MenuOverlayBase::IsVisible(),
+                                           Config::Instance()->ShortcutKey.value_or_default());
+            if (renderedMenu)
             {
                 ImGui::Render();
 
@@ -568,26 +586,33 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
                     return;
                 }
 
-                if (blurMenu)
-                {
-                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-                    g_pd3dCommandList->ResourceBarrier(1, &barrier);
-
-                    g_menuBlur->Dispatch(g_pd3dCommandList, g_mainRenderTargetResource[backBufferIdx], backBufferIdx);
-
-                    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-                }
-
-                g_pd3dCommandList->ResourceBarrier(1, &barrier);
-                g_pd3dCommandList->OMSetRenderTargets(1, &g_mainRenderTargetDescriptor[backBufferIdx], FALSE, NULL);
                 g_pd3dCommandList->SetDescriptorHeaps(1, &g_pd3dSrvDescHeap);
+                const bool vrOverlay = MenuOverlayBase::IsVisible() &&
+                    CodiesVrBridge::DrawOverlay(device, (ID3D12CommandQueue*) currentSCCommandQueue,
+                                               g_pd3dCommandList,
+                                               g_mainRenderTargetResource[backBufferIdx]->GetDesc(),
+                                               backBufferIdx);
 
-                ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_pd3dCommandList);
+                // VR-only while connected: drawing into the desktop backbuffer
+                // here could put a second menu inside CodiesVR's HUD capture.
+                if (!vrOverlay)
+                {
+                    if (blurMenu)
+                    {
+                        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                        g_pd3dCommandList->ResourceBarrier(1, &barrier);
+                        g_menuBlur->Dispatch(g_pd3dCommandList, g_mainRenderTargetResource[backBufferIdx], backBufferIdx);
+                        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                    }
 
-                barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-                barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-                g_pd3dCommandList->ResourceBarrier(1, &barrier);
+                    g_pd3dCommandList->ResourceBarrier(1, &barrier);
+                    g_pd3dCommandList->OMSetRenderTargets(1, &g_mainRenderTargetDescriptor[backBufferIdx], FALSE, NULL);
+                    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_pd3dCommandList);
+                    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+                    g_pd3dCommandList->ResourceBarrier(1, &barrier);
+                }
 
                 result = g_pd3dCommandList->Close();
                 if (result != S_OK)
@@ -606,7 +631,10 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
                     result = ((ID3D12CommandQueue*) currentSCCommandQueue)->Signal(g_menuFence, ++g_menuFenceValue);
 
                     if (result == S_OK)
+                    {
                         g_allocatorFenceValues[backBufferIdx] = g_menuFenceValue;
+                        if (vrOverlay) CodiesVrBridge::PublishOverlay(backBufferIdx);
+                    }
                     else
                         LOG_ERROR("Menu fence Signal: {:X}", (unsigned long) result);
                 }

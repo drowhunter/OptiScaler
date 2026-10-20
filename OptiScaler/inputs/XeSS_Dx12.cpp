@@ -1,10 +1,12 @@
 #include "pch.h"
+// Unofficial CodiesVR bridge integration, modified 2026-10-19. GPL-3.0.
 #include "XeSS_Dx12.h"
 
 #include "NVNGX_Parameter.h"
 
 #include <proxies/XeSS_Proxy.h>
 #include "menu/menu_overlay_dx.h"
+#include "menu/codiesvr_bridge.h"
 
 static UINT64 _handleCounter = 13370000;
 static UINT64 _frameCounter = 0;
@@ -247,6 +249,40 @@ xess_result_t hk_xessD3D12Execute(xess_context_handle_t hContext, ID3D12Graphics
                 pExecParams->inputResponsiveMaskBase.y);
 
     State::Instance().setInputApiName = ApiUpscalerInput::XeSS_DX12;
+
+    codiesvr::opti::Guides guides;
+    guides.context = reinterpret_cast<uintptr_t>(hContext);
+    guides.commandList = pCommandList;
+    guides.color = pExecParams->pColorTexture;
+    guides.depth = pExecParams->pDepthTexture;
+    guides.motion = pExecParams->pVelocityTexture;
+    guides.initFlags = initParams->initFlags;
+    guides.renderWidth = pExecParams->inputWidth;
+    guides.renderHeight = pExecParams->inputHeight;
+    guides.outputWidth = initParams->outputResolution.x;
+    guides.outputHeight = initParams->outputResolution.y;
+    guides.colorX = pExecParams->inputColorBase.x;
+    guides.colorY = pExecParams->inputColorBase.y;
+    guides.depthX = pExecParams->inputDepthBase.x;
+    guides.depthY = pExecParams->inputDepthBase.y;
+    guides.motionX = pExecParams->inputMotionVectorBase.x;
+    guides.motionY = pExecParams->inputMotionVectorBase.y;
+    guides.outputX = pExecParams->outputColorBase.x;
+    guides.outputY = pExecParams->outputColorBase.y;
+    guides.jitterX = pExecParams->jitterOffsetX * jitterScaleX;
+    guides.jitterY = pExecParams->jitterOffsetY * jitterScaleY;
+    guides.reset = pExecParams->resetHistory;
+    if (params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &guides.motionScaleX) == NVSDK_NGX_Result_Success &&
+        params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &guides.motionScaleY) == NVSDK_NGX_Result_Success)
+    {
+        CodiesVrBridge::PublishGuides(guides);
+    }
+    else
+    {
+        static bool warned = false;
+        if (!warned) LOG_ERROR("CodiesVR: XeSS motion-vector scale unavailable; guide callback skipped");
+        warned = true;
+    }
 
     if (NVSDK_NGX_D3D12_EvaluateFeature(pCommandList, handle, params, nullptr) == NVSDK_NGX_Result_Success)
         return XESS_RESULT_SUCCESS;

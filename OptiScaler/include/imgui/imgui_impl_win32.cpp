@@ -88,6 +88,9 @@
 #include "pch.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_impl_win32.h"
+#include "menu/codiesvr_bridge.h"
+#include "menu/codiesvr_gamepad.h"
+#include "menu/input/input_system_internal.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -399,6 +402,16 @@ static void ImGui_ImplWin32_UpdateGamepads(ImGuiIO& io)
 {
 #ifndef IMGUI_IMPL_WIN32_DISABLE_GAMEPAD
     ImGui_ImplWin32_Data* bd = ImGui_ImplWin32_GetBackendData(io);
+
+    if (CodiesVrBridge::Active())
+    {
+        // Menu input must bypass OptiScaler's game-facing neutral-state hooks.
+        OptiInput::ScopedHookBypass bypass;
+        CodiesVrFeedGamepad(io, [bd](DWORD slot, XINPUT_STATE* state) {
+            return bd->XInputGetState ? bd->XInputGetState(slot, state) : ERROR_DEVICE_NOT_CONNECTED;
+        });
+        return;
+    }
 
     // Calling XInputGetState() every frame on disconnected gamepads is unfortunately too slow.
     // Instead we refresh gamepad availability by calling XInputGetCapabilities() _only_ after receiving WM_DEVICECHANGE.
