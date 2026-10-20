@@ -5,6 +5,7 @@
 #include <imgui/imgui_impl_dx12.h>
 #include <wrl/client.h>
 #include <array>
+#include <atomic>
 #include <mutex>
 
 // Unofficial CodiesVR integration, modified 2026-10-19. GPL-3.0.
@@ -22,6 +23,7 @@ std::array<ComPtr<ID3D12Resource>, kSlots> g_textures;
 ComPtr<ID3D12Resource> g_published;
 codiesvr::opti::GuideCallback g_guides = nullptr;
 void* g_user = nullptr;
+std::atomic<int> g_menuRequest{-1};
 
 HRESULT __cdecl GetOverlay(ID3D12CommandQueue* queue, codiesvr::opti::OverlayFrame* frame) {
     if (frame == nullptr || frame->size != sizeof(*frame)) return E_INVALIDARG;
@@ -32,6 +34,7 @@ HRESULT __cdecl GetOverlay(ID3D12CommandQueue* queue, codiesvr::opti::OverlayFra
         g_published.Reset();
         g_lastPoll = 0;
         frame->shortcutKey = g_shortcut;
+        frame->visible = g_visible && GetTickCount64() - g_lastMenuUpdate < 250;
         return S_FALSE;
     }
     ComPtr<IUnknown> identity;
@@ -58,6 +61,13 @@ void __cdecl SetGuideCallback(codiesvr::opti::GuideCallback callback, void* user
 }  // namespace
 
 extern "C" __declspec(dllexport) HRESULT __cdecl
+OptiScaler_CodiesVR_RequestMenuV1(uint32_t visible) {
+    if (visible > 1) return E_INVALIDARG;
+    g_menuRequest.store(static_cast<int>(visible));
+    return S_OK;
+}
+
+extern "C" __declspec(dllexport) HRESULT __cdecl
 OptiScaler_CodiesVR_GetApiV1(uint32_t version, uint32_t size, codiesvr::opti::Api* api) {
     if (version != codiesvr::opti::kVersion || size != sizeof(*api) || api == nullptr)
         return E_INVALIDARG;
@@ -68,6 +78,8 @@ OptiScaler_CodiesVR_GetApiV1(uint32_t version, uint32_t size, codiesvr::opti::Ap
 }
 
 namespace CodiesVrBridge {
+int TakeMenuRequest() { return g_menuRequest.exchange(-1); }
+
 bool Active() {
     std::lock_guard lock(g_mutex);
     return g_consumerQueue && GetTickCount64() - g_lastPoll < 2000;

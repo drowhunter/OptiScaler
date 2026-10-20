@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "menu_common.h"
+#include "codiesvr_bridge.h"
+// CodiesVR modification, 2026-10-20: render-thread menu requests. GPL-3.0.
 #include "PresentRateMeter.h"
 #include <inputs/FG/XeFG_Inputs_Dx12.h>
 
@@ -1828,6 +1830,9 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
     auto& state = ctx.state;
     auto config = ctx.config;
     auto& io = ctx.io;
+    const int menuRequest = CodiesVrBridge::TakeMenuRequest();
+    if (menuRequest >= 0)
+        inputMenu = (menuRequest != 0) != _isVisible;
 
     // Handle Inputs
     {

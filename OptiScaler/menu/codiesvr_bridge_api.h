@@ -10,6 +10,9 @@ namespace codiesvr::opti {
 
 constexpr uint32_t kVersion = 1;
 constexpr char kExport[] = "OptiScaler_CodiesVR_GetApiV1";
+constexpr char kMenuExport[] = "OptiScaler_CodiesVR_RequestMenuV1";
+// Optional extension to V1. Queues visibility on OptiScaler's render thread.
+using RequestMenu = HRESULT(__cdecl*)(uint32_t visible);
 
 #pragma pack(push, 8)
 struct OverlayFrame {

@@ -88,6 +88,7 @@
 #include "pch.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_impl_win32.h"
+// CodiesVR modification 2026-10-20: VR gamepad feed. See CODIESVR-NOTICE.txt.
 #include "menu/codiesvr_bridge.h"
 #include "menu/codiesvr_gamepad.h"
 #include "menu/input/input_system_internal.h"
