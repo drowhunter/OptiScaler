@@ -79,6 +79,10 @@ OptiScaler_CodiesVR_GetApiV1(uint32_t version, uint32_t size, codiesvr::opti::Ap
 
 namespace CodiesVrBridge {
 int TakeMenuRequest() { return g_menuRequest.exchange(-1); }
+void RequestMenuClose() {
+    std::lock_guard lock(g_mutex);
+    if (g_visible) g_menuRequest.store(0);
+}
 
 bool Active() {
     std::lock_guard lock(g_mutex);

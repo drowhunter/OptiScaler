@@ -7,7 +7,7 @@
 
 // Poll under OptiInput::ScopedHookBypass; only the UI reads unblocked state.
 template <typename Poll>
-void CodiesVrFeedGamepad(ImGuiIO& io, Poll poll) {
+bool CodiesVrFeedGamepad(ImGuiIO& io, Poll poll) {
     XINPUT_STATE state{};
     bool connected = false;
     for (DWORD slot = 0; slot < XUSER_MAX_COUNT; ++slot) {
@@ -53,4 +53,10 @@ void CodiesVrFeedGamepad(ImGuiIO& io, Poll poll) {
     analog(ImGuiKey_GamepadRStickRight, pad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, 32767);
     analog(ImGuiKey_GamepadRStickUp, pad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, 32767);
     analog(ImGuiKey_GamepadRStickDown, pad.sThumbRY, -XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, -32768);
+    static bool sticksDown = false;
+    constexpr WORD both = XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB;
+    const bool sticks = (pad.wButtons & both) == both;
+    const bool closeMenu = sticks && !sticksDown;
+    sticksDown = sticks;
+    return closeMenu;
 }

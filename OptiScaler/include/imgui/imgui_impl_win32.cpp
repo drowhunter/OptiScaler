@@ -408,9 +408,9 @@ static void ImGui_ImplWin32_UpdateGamepads(ImGuiIO& io)
     {
         // Menu input must bypass OptiScaler's game-facing neutral-state hooks.
         OptiInput::ScopedHookBypass bypass;
-        CodiesVrFeedGamepad(io, [bd](DWORD slot, XINPUT_STATE* state) {
+        if (CodiesVrFeedGamepad(io, [bd](DWORD slot, XINPUT_STATE* state) {
             return bd->XInputGetState ? bd->XInputGetState(slot, state) : ERROR_DEVICE_NOT_CONNECTED;
-        });
+        })) CodiesVrBridge::RequestMenuClose();
         return;
     }
 
